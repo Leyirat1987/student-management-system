@@ -4,8 +4,19 @@ import json
 from werkzeug.utils import secure_filename
 import sqlite3
 from datetime import datetime
-import pandas as pd
+
+# Optional pandas import - lazım olduqda yükləyəcək
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+    print("⚠️ Pandas not available - Excel import/export disabled")
+
 from werkzeug.security import check_password_hash, generate_password_hash
+
+# Google Drive integration
+from google_drive_service import get_drive_service
 
 app = Flask(__name__)
 app.secret_key = 'utis_pdf_system_secret_key_2024_azerbaijan'
@@ -92,9 +103,20 @@ def init_db():
                 filename VARCHAR(255) NOT NULL,
                 original_filename VARCHAR(255),
                 file_path TEXT,
+                drive_file_id VARCHAR(255),
+                file_size VARCHAR(50),
                 upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        
+        # Add drive_file_id column if it doesn't exist (for existing databases)
+        try:
+            c.execute('ALTER TABLE pdfs ADD COLUMN drive_file_id VARCHAR(255)')
+            c.execute('ALTER TABLE pdfs ADD COLUMN file_size VARCHAR(50)')
+            conn.commit()
+        except:
+            pass  # Column already exists
+            
     else:
         c = conn.cursor()
         # SQLite table creation (existing code)
@@ -115,9 +137,24 @@ def init_db():
                 filename TEXT NOT NULL,
                 original_filename TEXT,
                 file_path TEXT,
+                drive_file_id TEXT,
+                file_size TEXT,
                 upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        
+        # Add drive_file_id column if it doesn't exist (for existing databases)
+        try:
+            c.execute('ALTER TABLE pdfs ADD COLUMN drive_file_id TEXT')
+            conn.commit()
+        except:
+            pass  # Column already exists
+            
+        try:
+            c.execute('ALTER TABLE pdfs ADD COLUMN file_size TEXT')
+            conn.commit()
+        except:
+            pass  # Column already exists
     
     conn.commit()
     conn.close()
@@ -135,10 +172,16 @@ def get_student_by_utis(utis_code):
     return student
 
 def get_pdfs_by_utis(utis_code):
-    """Get all PDFs for a UTIS code directly"""
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
-    c.execute('SELECT * FROM pdfs WHERE utis_code = ?', (utis_code,))
+    """Get PDFs for a specific UTİS code"""
+    conn, is_postgres = get_db_connection()
+    
+    if is_postgres:
+        c = conn.cursor()
+        c.execute('SELECT id, utis_code, filename, original_filename, file_path, drive_file_id, file_size, upload_date FROM pdfs WHERE utis_code = %s ORDER BY upload_date DESC', (utis_code,))
+    else:
+        c = conn.cursor()
+        c.execute('SELECT id, utis_code, filename, original_filename, file_path, drive_file_id, file_size, upload_date FROM pdfs WHERE utis_code = ? ORDER BY upload_date DESC', (utis_code,))
+    
     pdfs = c.fetchall()
     conn.close()
     return pdfs
@@ -349,29 +392,42 @@ def admin():
     }
     
     # Bütün PDF faylları al (fayl həcmi ilə birlikdə)
-    c.execute('SELECT * FROM pdfs ORDER BY upload_date DESC')
+    if is_postgres:
+        c.execute('SELECT id, utis_code, filename, original_filename, file_path, drive_file_id, file_size, upload_date FROM pdfs ORDER BY upload_date DESC')
+    else:
+        c.execute('SELECT id, utis_code, filename, original_filename, file_path, drive_file_id, file_size, upload_date FROM pdfs ORDER BY upload_date DESC')
+    
     pdf_files_raw = c.fetchall()
     
-    # Fayl həcmini əlavə et
+    # PDF fayllarını düzəlt - artıq fayl həcmi database-də saxlanılır
     pdf_files = []
     for pdf in pdf_files_raw:
         pdf_data = list(pdf)
-        try:
-            # Fayl həcmini hesabla
-            file_path_index = 4 if not is_postgres else 4  # file_path column index
-            if len(pdf) > file_path_index and pdf[file_path_index] and os.path.exists(pdf[file_path_index]):
-                file_size = os.path.getsize(pdf[file_path_index])
-                if file_size < 1024:
-                    size_str = f"{file_size} B"
-                elif file_size < 1024*1024:
-                    size_str = f"{file_size/1024:.1f} KB"
+        
+        # File size database-dən al (column 6)
+        if len(pdf) > 6 and pdf[6]:
+            # Database-də saxlanılan fayl həcmini istifadə et
+            file_size_str = pdf[6]
+        else:
+            # Fallback: yerli fayldan hesabla (köhnə sistem üçün)
+            try:
+                file_path_index = 4  # file_path column index
+                if len(pdf) > file_path_index and pdf[file_path_index] and os.path.exists(pdf[file_path_index]):
+                    file_size = os.path.getsize(pdf[file_path_index])
+                    if file_size < 1024:
+                        file_size_str = f"{file_size} B"
+                    elif file_size < 1024*1024:
+                        file_size_str = f"{file_size/1024:.1f} KB"
+                    else:
+                        file_size_str = f"{file_size/(1024*1024):.1f} MB"
                 else:
-                    size_str = f"{file_size/(1024*1024):.1f} MB"
-                pdf_data.append(size_str)
-            else:
-                pdf_data.append("Fayl tapılmadı")
-        except:
-            pdf_data.append("N/A")
+                    file_size_str = "N/A"
+            except:
+                file_size_str = "N/A"
+        
+        # File size-ı PDF data-ya əlavə et (əgər artıq yoxdursa)
+        if len(pdf_data) <= 7:
+            pdf_data.append(file_size_str)
         
         pdf_files.append(pdf_data)
     
@@ -386,7 +442,7 @@ def admin():
 @app.route('/bulk_upload_pdfs', methods=['POST'])
 @login_required
 def bulk_upload_pdfs():
-    """Upload multiple PDFs at once"""
+    """Upload multiple PDFs at once to Google Drive"""
     if 'files' not in request.files:
         flash('Fayl seçilməyib!', 'error')
         return redirect(url_for('admin'))
@@ -400,6 +456,12 @@ def bulk_upload_pdfs():
     uploaded_count = 0
     failed_count = 0
     
+    # Google Drive service əldə et
+    drive_service = get_drive_service()
+    if not drive_service:
+        flash('Google Drive bağlantısında xəta!', 'error')
+        return redirect(url_for('admin'))
+    
     for file in files:
         if file and allowed_file(file.filename):
             try:
@@ -410,32 +472,76 @@ def bulk_upload_pdfs():
                 original_filename = file.filename
                 filename = secure_filename(file.filename)
                 
-                # Unikal fayl adı yarat
+                # Unikal fayl adı yarat (müvəqqəti yerlə fayllar üçün)
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
-                new_filename = f"{utis_code}_{timestamp}_{filename}"
+                temp_filename = f"{utis_code}_{timestamp}_{filename}"
                 
-                file_path = os.path.join(app.config['UPLOAD_FOLDER'], new_filename)
-                file.save(file_path)
+                # Müvəqqəti olaraq yerli qovluğa yüklə
+                temp_file_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
+                file.save(temp_file_path)
                 
-                # Verilənlər bazasına əlavə et
-                conn = sqlite3.connect(DATABASE)
-                c = conn.cursor()
-                c.execute('''
-                    INSERT INTO pdfs (utis_code, filename, original_filename, file_path)
-                    VALUES (?, ?, ?, ?)
-                ''', (utis_code, new_filename, original_filename, file_path))
-                conn.commit()
-                conn.close()
+                # Google Drive-a yüklə
+                drive_result = drive_service.upload_pdf(temp_file_path, utis_code, original_filename)
                 
-                uploaded_count += 1
+                if drive_result:
+                    # File size əldə et
+                    file_size = drive_result.get('file_size', '0')
+                    if file_size and file_size != '0':
+                        # Bytes-dan MB-a çevir
+                        file_size_mb = int(file_size) / (1024 * 1024)
+                        if file_size_mb < 1:
+                            size_str = f"{int(file_size) / 1024:.1f} KB"
+                        else:
+                            size_str = f"{file_size_mb:.1f} MB"
+                    else:
+                        size_str = "N/A"
+                    
+                    # Database-ə Google Drive məlumatları ilə əlavə et
+                    conn, is_postgres = get_db_connection()
+                    
+                    if is_postgres:
+                        c = conn.cursor()
+                        c.execute('''
+                            INSERT INTO pdfs (utis_code, filename, original_filename, file_path, drive_file_id, file_size)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                        ''', (utis_code, temp_filename, original_filename, None, drive_result['drive_file_id'], size_str))
+                    else:
+                        c = conn.cursor()
+                        c.execute('''
+                            INSERT INTO pdfs (utis_code, filename, original_filename, file_path, drive_file_id, file_size)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        ''', (utis_code, temp_filename, original_filename, None, drive_result['drive_file_id'], size_str))
+                    
+                    conn.commit()
+                    conn.close()
+                    
+                    # Müvəqqəti faylı sil
+                    if os.path.exists(temp_file_path):
+                        os.remove(temp_file_path)
+                    
+                    uploaded_count += 1
+                    print(f"✅ PDF uploaded successfully: {utis_code} -> {drive_result['drive_file_id']}")
+                else:
+                    # Google Drive upload failed, müvəqqəti faylı sil
+                    if os.path.exists(temp_file_path):
+                        os.remove(temp_file_path)
+                    failed_count += 1
+                    print(f"❌ Google Drive upload failed for: {file.filename}")
+                    
             except Exception as e:
                 failed_count += 1
                 print(f"Fayl yükləmə səhvi: {file.filename} - {str(e)}")
+                # Müvəqqəti faylı təmizlə əgər xəta baş verdi
+                try:
+                    if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+                        os.remove(temp_file_path)
+                except:
+                    pass
         else:
             failed_count += 1
     
     if uploaded_count > 0:
-        flash(f'{uploaded_count} PDF uğurla yükləndi!', 'success')
+        flash(f'{uploaded_count} PDF uğurla Google Drive-a yükləndi!', 'success')
     if failed_count > 0:
         flash(f'{failed_count} PDF yüklənə bilmədi!', 'error')
     
@@ -445,6 +551,10 @@ def bulk_upload_pdfs():
 @login_required
 def upload_excel_students():
     """Upload students from Excel file"""
+    if not PANDAS_AVAILABLE:
+        flash('Excel funksiyası üçün pandas package lazımdır!', 'error')
+        return redirect(url_for('admin'))
+        
     if 'excel_file' not in request.files:
         flash('Excel fayl seçilməyib!', 'error')
         return redirect(url_for('admin'))
@@ -505,30 +615,98 @@ def upload_excel_students():
 
 @app.route('/download/<int:pdf_id>')
 def download_pdf(pdf_id):
-    """Download a PDF file"""
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
-    c.execute('SELECT * FROM pdfs WHERE id = ?', (pdf_id,))
+    """Download a PDF file from Google Drive"""
+    conn, is_postgres = get_db_connection()
+    
+    if is_postgres:
+        c = conn.cursor()
+        c.execute('SELECT id, utis_code, filename, original_filename, file_path, drive_file_id, file_size FROM pdfs WHERE id = %s', (pdf_id,))
+    else:
+        c = conn.cursor()
+        c.execute('SELECT id, utis_code, filename, original_filename, file_path, drive_file_id, file_size FROM pdfs WHERE id = ?', (pdf_id,))
+    
     pdf = c.fetchone()
     conn.close()
     
-    if pdf and os.path.exists(pdf[4]):  # pdf[4] is file_path
-        return send_file(pdf[4], as_attachment=True, download_name=pdf[3])  # pdf[3] is original_filename
+    if not pdf:
+        flash('PDF fayl tapılmadı!', 'error')
+        return redirect(url_for('index'))
+    
+    # Əgər Google Drive file ID varsa
+    if pdf[5]:  # pdf[5] is drive_file_id
+        drive_service = get_drive_service()
+        if drive_service:
+            try:
+                # Google Drive-dan PDF yüklə
+                pdf_content = drive_service.download_pdf(pdf[5])
+                if pdf_content:
+                    return send_file(
+                        pdf_content,
+                        as_attachment=True,
+                        download_name=pdf[3],  # pdf[3] is original_filename
+                        mimetype='application/pdf'
+                    )
+                else:
+                    flash('Google Drive-dan PDF yüklənə bilmədi!', 'error')
+                    return redirect(url_for('index'))
+            except Exception as e:
+                print(f"❌ Google Drive download error: {str(e)}")
+                flash('PDF yükləmədə xəta baş verdi!', 'error')
+                return redirect(url_for('index'))
+        else:
+            flash('Google Drive bağlantısında xəta!', 'error')
+            return redirect(url_for('index'))
+    
+    # Köhnə sistem - yerli fayllar (fallback)
+    elif pdf[4] and os.path.exists(pdf[4]):  # pdf[4] is file_path
+        return send_file(pdf[4], as_attachment=True, download_name=pdf[3])
+    
     else:
-        flash('Fayl tapılmadı!', 'error')
+        flash('PDF fayl tapılmadı!', 'error')
         return redirect(url_for('index'))
 
 @app.route('/preview/<int:pdf_id>')
 def preview_pdf(pdf_id):
-    """Stream PDF file for preview"""
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
-    c.execute('SELECT * FROM pdfs WHERE id = ?', (pdf_id,))
+    """Stream PDF file for preview from Google Drive"""
+    conn, is_postgres = get_db_connection()
+    
+    if is_postgres:
+        c = conn.cursor()
+        c.execute('SELECT id, utis_code, filename, original_filename, file_path, drive_file_id, file_size FROM pdfs WHERE id = %s', (pdf_id,))
+    else:
+        c = conn.cursor()
+        c.execute('SELECT id, utis_code, filename, original_filename, file_path, drive_file_id, file_size FROM pdfs WHERE id = ?', (pdf_id,))
+    
     pdf = c.fetchone()
     conn.close()
     
-    if pdf and os.path.exists(pdf[4]):  # pdf[4] is file_path
-        # PDF-i önizləmə üçün inline göstər
+    if not pdf:
+        return "PDF fayl tapılmadı", 404
+    
+    # Əgər Google Drive file ID varsa
+    if pdf[5]:  # pdf[5] is drive_file_id
+        drive_service = get_drive_service()
+        if drive_service:
+            try:
+                # Google Drive-dan PDF yüklə
+                pdf_content = drive_service.download_pdf(pdf[5])
+                if pdf_content:
+                    return send_file(
+                        pdf_content,
+                        mimetype='application/pdf',
+                        as_attachment=False,
+                        download_name=pdf[3]  # pdf[3] is original_filename
+                    )
+                else:
+                    return "Google Drive-dan PDF yüklənə bilmədi", 500
+            except Exception as e:
+                print(f"❌ Google Drive preview error: {str(e)}")
+                return "PDF önizləmədə xəta baş verdi", 500
+        else:
+            return "Google Drive bağlantısında xəta", 500
+    
+    # Köhnə sistem - yerli fayllar (fallback)
+    elif pdf[4] and os.path.exists(pdf[4]):  # pdf[4] is file_path
         return send_file(pdf[4], 
                         mimetype='application/pdf',
                         as_attachment=False,
@@ -539,21 +717,39 @@ def preview_pdf(pdf_id):
 @app.route('/delete_pdf/<int:pdf_id>')
 @login_required
 def delete_pdf(pdf_id):
-    """Delete a PDF file"""
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
-    c.execute('SELECT * FROM pdfs WHERE id = ?', (pdf_id,))
+    """Delete a PDF file from Google Drive and database"""
+    conn, is_postgres = get_db_connection()
+    
+    if is_postgres:
+        c = conn.cursor()
+        c.execute('SELECT id, utis_code, filename, original_filename, file_path, drive_file_id, file_size FROM pdfs WHERE id = %s', (pdf_id,))
+    else:
+        c = conn.cursor()
+        c.execute('SELECT id, utis_code, filename, original_filename, file_path, drive_file_id, file_size FROM pdfs WHERE id = ?', (pdf_id,))
+    
     pdf = c.fetchone()
     
     if pdf:
-        # Delete file from disk
-        if os.path.exists(pdf[4]):
-            os.remove(pdf[4])
+        # Google Drive-dan sil
+        if pdf[5]:  # pdf[5] is drive_file_id
+            drive_service = get_drive_service()
+            if drive_service:
+                drive_service.delete_pdf(pdf[5])
         
-        # Delete from database
-        c.execute('DELETE FROM pdfs WHERE id = ?', (pdf_id,))
+        # Yerli faylı sil (əgər varsa)
+        if pdf[4] and os.path.exists(pdf[4]):  # pdf[4] is file_path
+            try:
+                os.remove(pdf[4])
+            except Exception as e:
+                print(f"Local file deletion error: {str(e)}")
+        
+        # Database-dən sil
+        if is_postgres:
+            c.execute('DELETE FROM pdfs WHERE id = %s', (pdf_id,))
+        else:
+            c.execute('DELETE FROM pdfs WHERE id = ?', (pdf_id,))
         conn.commit()
-        flash('PDF silindi!', 'success')
+        flash('PDF Google Drive-dan və sistemdən silindi!', 'success')
     
     conn.close()
     return redirect(url_for('admin'))
@@ -561,7 +757,7 @@ def delete_pdf(pdf_id):
 @app.route('/bulk_delete_pdfs', methods=['POST'])
 @login_required
 def bulk_delete_pdfs():
-    """Delete multiple PDF files at once"""
+    """Delete multiple PDF files at once from Google Drive and database"""
     pdf_ids = request.form.getlist('pdf_ids')
     
     if not pdf_ids:
@@ -569,30 +765,46 @@ def bulk_delete_pdfs():
         return redirect(url_for('admin'))
     
     deleted_count = 0
-    conn = sqlite3.connect(DATABASE)
+    drive_service = get_drive_service()
+    
+    conn, is_postgres = get_db_connection()
     c = conn.cursor()
     
     for pdf_id in pdf_ids:
         try:
-            c.execute('SELECT * FROM pdfs WHERE id = ?', (pdf_id,))
+            if is_postgres:
+                c.execute('SELECT id, utis_code, filename, original_filename, file_path, drive_file_id, file_size FROM pdfs WHERE id = %s', (pdf_id,))
+            else:
+                c.execute('SELECT id, utis_code, filename, original_filename, file_path, drive_file_id, file_size FROM pdfs WHERE id = ?', (pdf_id,))
+            
             pdf = c.fetchone()
             
             if pdf:
-                # Delete file from disk
-                if os.path.exists(pdf[4]):
-                    os.remove(pdf[4])
+                # Google Drive-dan sil
+                if pdf[5] and drive_service:  # pdf[5] is drive_file_id
+                    drive_service.delete_pdf(pdf[5])
                 
-                # Delete from database
-                c.execute('DELETE FROM pdfs WHERE id = ?', (pdf_id,))
+                # Yerli faylı sil (əgər varsa)
+                if pdf[4] and os.path.exists(pdf[4]):  # pdf[4] is file_path
+                    try:
+                        os.remove(pdf[4])
+                    except Exception as e:
+                        print(f"Local file deletion error: {str(e)}")
+                
+                # Database-dən sil
+                if is_postgres:
+                    c.execute('DELETE FROM pdfs WHERE id = %s', (pdf_id,))
+                else:
+                    c.execute('DELETE FROM pdfs WHERE id = ?', (pdf_id,))
                 deleted_count += 1
         except Exception as e:
-            print(f"PDF silmə səhvi {pdf_id}: {str(e)}")
+            print(f"PDF silmə səhvi: {pdf_id} - {str(e)}")
     
     conn.commit()
     conn.close()
     
     if deleted_count > 0:
-        flash(f'{deleted_count} PDF uğurla silindi!', 'success')
+        flash(f'{deleted_count} PDF Google Drive-dan və sistemdən silindi!', 'success')
     else:
         flash('Heç bir PDF silinə bilmədi!', 'error')
     
