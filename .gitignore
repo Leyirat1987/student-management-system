@@ -71,4 +71,8 @@ uploads/*.docx
 
 # Sensitive data
 config_local.py
-secrets.py 
+secrets.py
+
+# Google Credentials
+google-credentials.json
+*credentials*.json 
