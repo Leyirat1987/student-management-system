@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: student-management-system
+    env: python
+    buildCommand: |
+      pip install -r requirements.txt
+      flask db upgrade || echo "No migrations found"
+    startCommand: "gunicorn app:app --workers 4 --timeout 120"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+    disk:
+      name: uploads-disk
+      mountPath: /opt/render/project/src/uploads
+      sizeGB: 10
+
+databases:
+  - name: student-management-db
+    databaseName: student_management
+    user: student_admin 

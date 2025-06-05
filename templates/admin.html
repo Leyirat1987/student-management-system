@@ -1,0 +1,992 @@
+{% extends "base.html" %}
+
+{% block title %}İdarəetmə Paneli{% endblock %}
+
+{% block head %}
+<style>
+/* Uyğunluq problemli şagirdlər üçün sarı rəng */
+.table-warning {
+    background-color: #fff3cd !important;
+    border-color: #ffeaa7 !important;
+}
+
+.table-warning:hover {
+    background-color: #ffeaa7 !important;
+}
+
+/* Uyğunluq problemli PDF-lər üçün qırmızı rəng */
+.table-danger {
+    background-color: #f8d7da !important;
+    border-color: #f5c6cb !important;
+}
+
+.table-danger:hover {
+    background-color: #f5c6cb !important;
+}
+
+/* Xəbərdarlıq ikonları üçün animasiya */
+.fas.fa-exclamation-triangle {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
+
+/* Hover effekti gücləndirilmiş */
+tr.table-warning:hover td {
+    background-color: #ffeaa7 !important;
+}
+
+tr.table-danger:hover td {
+    background-color: #f5c6cb !important;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="container-custom">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2>
+                    <i class="fas fa-cog text-primary me-2"></i>
+                    İdarəetmə Paneli
+                </h2>
+                <div class="d-flex align-items-center gap-3">
+                    <div class="d-flex gap-3">
+                        <span class="badge bg-info fs-6">
+                            <i class="fas fa-users me-1"></i>
+                            {{ students|length }} Şagird
+                        </span>
+                        <span class="badge bg-success fs-6">
+                            <i class="fas fa-file-pdf me-1"></i>
+                            {{ total_pdfs }} PDF
+                        </span>
+                        <span class="badge bg-warning fs-6">
+                            <i class="fas fa-code me-1"></i>
+                            {{ unique_utis_codes }} UTİS Kodu
+                        </span>
+                    </div>
+                    
+                    <div class="d-flex align-items-center gap-2 ms-3 border-start ps-3">
+                        <div class="text-end">
+                            <small class="text-muted d-block">Admin</small>
+                            <strong class="text-dark">{{ session.admin_username or 'admin' }}</strong>
+                        </div>
+                        <a href="{{ url_for('admin_logout') }}" 
+                           class="btn btn-outline-danger btn-sm" 
+                           onclick="return confirm('Sistemdən çıxış etmək istədiyinizə əminsiniz?')">
+                            <i class="fas fa-sign-out-alt me-1"></i>
+                            Çıxış
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Validation Status Alert -->
+            {% if validation_status %}
+            <div class="mb-4">
+                {% if validation_status.is_balanced %}
+                <div class="alert alert-success d-flex align-items-center">
+                    <i class="fas fa-check-circle fa-2x me-3"></i>
+                    <div>
+                        <h5 class="mb-1">✅ Sistem Balansında!</h5>
+                        <p class="mb-0">
+                            <strong>{{ validation_status.student_count }}</strong> şagird = 
+                            <strong>{{ validation_status.unique_pdf_count }}</strong> unikal PDF
+                            (<strong>{{ validation_status.coverage_percentage }}%</strong> əhatə dərəcəsi)
+                        </p>
+                    </div>
+                </div>
+                {% else %}
+                <div class="alert alert-warning d-flex align-items-center">
+                    <i class="fas fa-exclamation-triangle fa-2x me-3"></i>
+                    <div>
+                        <h5 class="mb-1">⚠️ Uyğunluq Problemi!</h5>
+                        <p class="mb-2">
+                            <strong>{{ validation_status.student_count }}</strong> şagird ≠ 
+                            <strong>{{ validation_status.unique_pdf_count }}</strong> unikal PDF
+                            (<strong>{{ validation_status.coverage_percentage }}%</strong> əhatə dərəcəsi)
+                        </p>
+                        
+                        {% if validation_status.students_without_pdfs %}
+                        <div class="mb-2">
+                            <strong class="text-danger">PDF-si olmayan şagirdlər ({{ validation_status.students_without_pdfs|length }}):</strong>
+                            <div class="mt-1">
+                                {% for student in validation_status.students_without_pdfs %}
+                                <span class="badge bg-danger me-1">{{ student[0] }} - {{ student[1] or 'Ad yoxdur' }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                        
+                        {% if validation_status.pdfs_without_students %}
+                        <div class="mb-0">
+                            <strong class="text-warning">Şagirdi olmayan PDF-lər ({{ validation_status.pdfs_without_students|length }}):</strong>
+                            <div class="mt-1">
+                                {% for pdf in validation_status.pdfs_without_students %}
+                                <span class="badge bg-warning text-dark me-1">{{ pdf[0] }} - {{ pdf[1] }}</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <!-- Bulk Operations -->
+            <div class="row mb-5">
+                <!-- Bulk PDF Upload -->
+                <div class="col-lg-6">
+                    <div class="card">
+                        <div class="card-header bg-success text-white">
+                            <h5 class="mb-0">
+                                <i class="fas fa-cloud-upload-alt me-2"></i>Çoxlu PDF Yükləmə
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle me-2"></i>
+                                <strong>Qeyd:</strong> PDF fayl adları UTİS kodu olmalıdır (məs: UTIS123456.pdf)
+                            </div>
+                            <form method="POST" action="{{ url_for('bulk_upload_pdfs') }}" enctype="multipart/form-data">
+                                <div class="mb-3">
+                                    <label for="files" class="form-label">PDF Faylları Seçin:</label>
+                                    <input type="file" 
+                                           class="form-control" 
+                                           id="files" 
+                                           name="files" 
+                                           accept=".pdf"
+                                           multiple
+                                           required>
+                                    <div class="form-text">
+                                        <i class="fas fa-lightbulb me-1"></i>
+                                        Ctrl basılı tutaraq çoxlu fayl seçə bilərsiniz (Max: 200MB ümumi)
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-success w-100">
+                                    <i class="fas fa-upload me-2"></i>PDF-ləri Yüklə
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Excel Student Import -->
+                <div class="col-lg-6">
+                    <div class="card">
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="mb-0">
+                                <i class="fas fa-file-excel me-2"></i>Excel ilə Şagird İdxalı
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle me-2"></i>
+                                <strong>Tələb edilən sütunlar:</strong> utis_code, student_name, fin_code
+                            </div>
+                            <form method="POST" action="{{ url_for('upload_excel_students') }}" enctype="multipart/form-data">
+                                <div class="mb-3">
+                                    <label for="excel_file" class="form-label">Excel Faylı Seçin:</label>
+                                    <input type="file" 
+                                           class="form-control" 
+                                           id="excel_file" 
+                                           name="excel_file" 
+                                           accept=".xlsx,.xls"
+                                           required>
+                                    <div class="form-text">
+                                        Excel faylında 3 sütun olmalıdır: utis_code, student_name, fin_code
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-primary w-100">
+                                    <i class="fas fa-file-import me-2"></i>Şagirdləri İdxal Et
+                                </button>
+                            </form>
+                            
+                            <!-- Sample Excel Template -->
+                            <div class="mt-3">
+                                <h6 class="text-secondary mb-2">
+                                    <i class="fas fa-download me-1"></i>Nümunə Excel Template:
+                                </h6>
+                                <button class="btn btn-outline-secondary btn-sm" onclick="downloadSampleExcel()">
+                                    <i class="fas fa-download me-1"></i>Template Yüklə
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Students List -->
+            <div class="card mb-5">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-list me-2"></i>Şagirdlər Siyahısı
+                        </h5>
+                        {% if students %}
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="selectAllStudents()">
+                                <i class="fas fa-check-square me-1"></i>Hamısını Seç
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="deselectAllStudents()">
+                                <i class="fas fa-square me-1"></i>Seçimi Ləğv Et
+                            </button>
+                            <button type="button" class="btn btn-outline-danger btn-sm" onclick="bulkDeleteStudents()">
+                                <i class="fas fa-trash me-1"></i>Seçilənləri Sil
+                            </button>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if students %}
+                        <form id="bulkStudentForm" method="POST" action="{{ url_for('bulk_delete_students') }}">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th width="40">
+                                                <input type="checkbox" class="form-check-input" id="selectAllStudentsCheckbox" onchange="toggleAllStudents(this)">
+                                            </th>
+                                            <th><i class="fas fa-id-badge me-1"></i>UTİS Kodu</th>
+                                            <th><i class="fas fa-user me-1"></i>Şagird Adı</th>
+                                            <th><i class="fas fa-id-card me-1"></i>FİN Kodu</th>
+                                            <th><i class="fas fa-calendar me-1"></i>Qeydiyyat Tarixi</th>
+                                            <th><i class="fas fa-cogs me-1"></i>Əməliyyatlar</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for student in students %}
+                                        <tr id="student-row-{{ student[0] }}" class="{% if validation_status and student[0] in validation_status.students_without_pdfs_ids %}table-warning{% endif %}">
+                                            <td>
+                                                <input type="checkbox" class="form-check-input student-checkbox" name="student_ids" value="{{ student[0] }}">
+                                            </td>
+                                            <td>
+                                                <strong class="text-primary">{{ student[1] }}</strong>
+                                                {% if validation_status and student[0] in validation_status.students_without_pdfs_ids %}
+                                                <i class="fas fa-exclamation-triangle text-warning ms-1" title="Bu şagirdin PDF-i yoxdur"></i>
+                                                {% endif %}
+                                            </td>
+                                            <td>{{ student[2] or 'N/A' }}</td>
+                                            <td>
+                                                <code class="text-secondary">{{ student[3] or 'N/A' }}</code>
+                                            </td>
+                                            <td>
+                                                <small class="text-muted">{{ student[4][:16] if student[4] else 'N/A' }}</small>
+                                            </td>
+                                            <td>
+                                                <div class="btn-group" role="group">
+                                                    <button class="btn btn-sm btn-outline-primary" 
+                                                            onclick="viewStudentPDFs('{{ student[1] }}')">
+                                                        <i class="fas fa-eye"></i> PDF-lər
+                                                    </button>
+                                                    <button class="btn btn-sm btn-outline-info" 
+                                                            data-student-id="{{ student[0] }}"
+                                                            data-utis-code="{{ student[1] }}"
+                                                            data-student-name="{{ student[2] or '' }}"
+                                                            data-fin-code="{{ student[3] or '' }}"
+                                                            onclick="showStudentDetailsFromData(this)">
+                                                        <i class="fas fa-info-circle"></i> Detaylar
+                                                    </button>
+                                                    <a href="{{ url_for('edit_student', student_id=student[0]) }}" 
+                                                       class="btn btn-sm btn-outline-success"
+                                                       title="Şagirdi düzəliş et">
+                                                        <i class="fas fa-edit"></i> Düzəliş
+                                                    </a>
+                                                    <button class="btn btn-sm btn-outline-danger" 
+                                                            onclick="confirmDeleteStudent('{{ student[0] }}', '{{ student[1] }}')"
+                                                            title="Şagirdi sil">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </form>
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="fas fa-users fa-4x text-muted mb-3"></i>
+                            <h4 class="text-muted">Hələ şagird əlavə edilməyib</h4>
+                            <p class="text-muted">Excel fayl yükləyərək şagirdləri toplu şəkildə əlavə edin.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- PDF Files List -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-file-pdf me-2"></i>Yüklənmiş PDF Faylları
+                        </h5>
+                        {% if pdf_files %}
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="selectAllPDFs()">
+                                <i class="fas fa-check-square me-1"></i>Hamısını Seç
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="deselectAllPDFs()">
+                                <i class="fas fa-square me-1"></i>Seçimi Ləğv Et
+                            </button>
+                            <button type="button" class="btn btn-outline-danger btn-sm" onclick="bulkDeletePDFs()">
+                                <i class="fas fa-trash me-1"></i>Seçilənləri Sil
+                            </button>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if pdf_files %}
+                        <form id="bulkPDFForm" method="POST" action="{{ url_for('bulk_delete_pdfs') }}">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th width="40">
+                                                <input type="checkbox" class="form-check-input" id="selectAllPDFsCheckbox" onchange="toggleAllPDFs(this)">
+                                            </th>
+                                            <th><i class="fas fa-id-badge me-1"></i>UTİS Kodu</th>
+                                            <th><i class="fas fa-file-pdf me-1"></i>PDF Fayl Adı</th>
+                                            <th><i class="fas fa-weight me-1"></i>Fayl Həcmi</th>
+                                            <th><i class="fas fa-calendar me-1"></i>Yüklənmə Tarixi</th>
+                                            <th><i class="fas fa-cogs me-1"></i>Əməliyyatlar</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for pdf in pdf_files %}
+                                        <tr id="pdf-row-{{ pdf[0] }}" class="{% if validation_status and pdf[0] in validation_status.pdfs_without_students_ids %}table-danger{% endif %}">
+                                            <td>
+                                                <input type="checkbox" class="form-check-input pdf-checkbox" name="pdf_ids" value="{{ pdf[0] }}">
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-primary">{{ pdf[1] }}</span>
+                                                {% if validation_status and pdf[0] in validation_status.pdfs_without_students_ids %}
+                                                <i class="fas fa-exclamation-triangle text-danger ms-1" title="Bu PDF-in şagirdi yoxdur"></i>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                <i class="fas fa-file-pdf text-danger me-2"></i>
+                                                <strong>{{ pdf[3] }}</strong>
+                                            </td>
+                                            <td>
+                                                <small class="text-muted">{{ pdf[6] if pdf[6] else 'N/A' }}</small>
+                                            </td>
+                                            <td>
+                                                <small class="text-muted">{{ pdf[5][:16] if pdf[5] else 'N/A' }}</small>
+                                            </td>
+                                            <td class="text-end">
+                                                <div class="d-flex gap-1 justify-content-end">
+                                                    <a href="{{ url_for('edit_pdf', pdf_id=pdf[0]) }}" 
+                                                       class="btn btn-outline-warning btn-sm" 
+                                                       title="PDF adını düzəlt">
+                                                        <i class="fas fa-edit"></i>
+                                                    </a>
+                                                    <a href="/download/{{ pdf[0] }}" 
+                                                       class="btn btn-outline-primary btn-sm" 
+                                                       title="Endir">
+                                                        <i class="fas fa-download"></i>
+                                                    </a>
+                                                    <button type="button" 
+                                                            class="btn btn-outline-danger btn-sm" 
+                                                            onclick="confirmDeletePDF('{{ pdf[0] }}', '{{ pdf[2] }}')"
+                                                            title="Sil">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </form>
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="fas fa-file-pdf fa-4x text-muted mb-3"></i>
+                            <h4 class="text-muted">Hələ PDF fayl yüklənməyib</h4>
+                            <p class="text-muted">Yuxarıdakı formu istifadə edərək PDF fayllar yükləyin.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Student Details Modal -->
+<div class="modal fade" id="studentDetailsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-user-graduate text-primary me-2"></i>
+                    Şagird Detalları
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="studentDetailsContent">
+                    <!-- Content will be loaded dynamically -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-2"></i>Bağla
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PDF Upload Progress Modal -->
+<div class="modal fade" id="uploadProgressModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-cloud-upload-alt text-primary me-2"></i>
+                    PDF Yükləmə İrəliləməsi
+                </h5>
+            </div>
+            <div class="modal-body">
+                <div class="progress mb-3">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width: 0%"></div>
+                </div>
+                <div id="uploadStatus">Yükləmə başlayır...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Statistics Cards -->
+<div class="row mt-4">
+    <div class="col-md-3 mb-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body text-center">
+                <i class="fas fa-users fa-2x mb-2"></i>
+                <h4>{{ validation_status.student_count if validation_status else students|length }}</h4>
+                <small>Ümumi Şagird</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card bg-success text-white">
+            <div class="card-body text-center">
+                <i class="fas fa-file-pdf fa-2x mb-2"></i>
+                <h4>{{ validation_status.unique_pdf_count if validation_status else unique_utis_codes }}</h4>
+                <small>Unikal PDF</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card {% if validation_status and validation_status.is_balanced %}bg-success{% else %}bg-warning{% endif %} text-white">
+            <div class="card-body text-center">
+                <i class="fas fa-balance-scale fa-2x mb-2"></i>
+                <h4>{{ validation_status.coverage_percentage if validation_status else ((unique_utis_codes / students|length * 100) | round(1)) if students|length > 0 else 0 }}%</h4>
+                <small>PDF Əhatə Dərəcəsi</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card {% if validation_status and validation_status.students_without_pdfs %}bg-danger{% else %}bg-info{% endif %} text-white">
+            <div class="card-body text-center">
+                <i class="fas fa-user-times fa-2x mb-2"></i>
+                <h4>{{ validation_status.students_without_pdfs|length if validation_status and validation_status.students_without_pdfs else 0 }}</h4>
+                <small>PDF-siz Şagird</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PDF Preview Modal -->
+<div class="modal fade" id="pdfPreviewModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-file-pdf text-danger me-2"></i>
+                    <span id="pdfTitle">PDF Önizləmə</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="text-center p-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Yüklənir...</span>
+                    </div>
+                    <p class="mt-2 text-muted">PDF yüklənir...</p>
+                </div>
+                <embed id="pdfEmbed" 
+                       src="" 
+                       type="application/pdf" 
+                       width="100%" 
+                       height="600"
+                       style="display: none;">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-2"></i>Bağla
+                </button>
+                <a id="downloadLink" href="#" class="btn btn-primary">
+                    <i class="fas fa-download me-2"></i>Yüklə
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// View student PDFs by simulating search
+function viewStudentPDFs(utisCode) {
+    // Create a form and submit to search route
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '{{ url_for("search_student") }}';
+    
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'utis_code';
+    input.value = utisCode;
+    
+    form.appendChild(input);
+    document.body.appendChild(form);
+    form.submit();
+}
+
+// Show student details using data attributes
+function showStudentDetailsFromData(button) {
+    const studentId = button.getAttribute('data-student-id');
+    const utisCode = button.getAttribute('data-utis-code');
+    const studentName = button.getAttribute('data-student-name');
+    const finCode = button.getAttribute('data-fin-code');
+    
+    showStudentDetails(studentId, utisCode, studentName, finCode);
+}
+
+// Show student details
+function showStudentDetails(studentId, utisCode, studentName, finCode) {
+    const modal = new bootstrap.Modal(document.getElementById('studentDetailsModal'));
+    const content = document.getElementById('studentDetailsContent');
+    
+    // Show loading
+    content.innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Yüklənir...</span>
+            </div>
+            <p class="mt-2">Məlumatlar yüklənir...</p>
+        </div>
+    `;
+    
+    modal.show();
+    
+    // Load student details
+    setTimeout(() => {
+        content.innerHTML = `
+            <div class="row">
+                <div class="col-md-6">
+                    <h6 class="text-primary mb-3">Şagird Məlumatları</h6>
+                    <table class="table table-borderless">
+                        <tr>
+                            <td><strong>ID:</strong></td>
+                            <td>${studentId}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>UTİS Kodu:</strong></td>
+                            <td><span class="badge bg-primary">${utisCode}</span></td>
+                        </tr>
+                        <tr>
+                            <td><strong>Ad Soyad:</strong></td>
+                            <td>${studentName || 'Məlumat yoxdur'}</td>
+                        </tr>
+                        <tr>
+                            <td><strong>FİN Kodu:</strong></td>
+                            <td><code>${finCode || 'Məlumat yoxdur'}</code></td>
+                        </tr>
+                    </table>
+                </div>
+                <div class="col-md-6">
+                    <h6 class="text-primary mb-3">Sürətli Əməliyyatlar</h6>
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-outline-primary" onclick="viewStudentPDFs('${utisCode}')">
+                            <i class="fas fa-eye me-2"></i>PDF-ləri Görüntülə
+                        </button>
+                        <button class="btn btn-outline-success" onclick="checkPDFsForStudent('${utisCode}')">
+                            <i class="fas fa-search me-2"></i>PDF Statusu Yoxla
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }, 500);
+}
+
+// Check PDFs for student
+function checkPDFsForStudent(utisCode) {
+    // This could be expanded with AJAX call to get PDF count
+    alert(`${utisCode} üçün PDF axtarılır...`);
+}
+
+// Download sample Excel template
+function downloadSampleExcel() {
+    // Create sample Excel data with correct FIN format (7 characters)
+    const sampleData = [
+        ['utis_code', 'student_name', 'fin_code'],
+        ['UTIS123456', 'Məmməd Əliyev', 'ABC1234'],
+        ['UTIS654321', 'Leyla Həsənova', 'XYZ9876'], 
+        ['UTIS789012', 'Rəşad Quliyev', 'DEF5678'],
+        ['UTIS111111', 'Aysel Məmmədova', 'QWE4321'],
+        ['UTIS222222', 'Elvin Rəhimov', 'RTY8765']
+    ];
+    
+    // Convert to CSV format with UTF-8 BOM for Excel compatibility
+    const csvContent = '\uFEFF' + sampleData.map(row => row.join(',')).join('\n');
+    
+    // Create download link
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'fin_sagird_template.csv';
+    link.click();
+    window.URL.revokeObjectURL(url);
+    
+    // Show instructions
+    setTimeout(() => {
+        alert('Template yükləndi!\\n\\n📝 İstifadə qaydası:\\n1. fin_sagird_template.csv faylını Excel-də açın\\n2. Məlumatları əvəz edin\\n3. Excel formatında (.xlsx) saxlayın\\n4. Admin paneldən import edin');
+    }, 500);
+}
+
+// PDF preview function for admin panel
+function previewPDF(pdfUrl, fileName) {
+    const modal = new bootstrap.Modal(document.getElementById('pdfPreviewModal'));
+    const pdfEmbed = document.getElementById('pdfEmbed');
+    const pdfTitle = document.getElementById('pdfTitle');
+    const downloadLink = document.getElementById('downloadLink');
+    const spinner = document.querySelector('#pdfPreviewModal .spinner-border').parentElement;
+    
+    // Reset modal
+    pdfEmbed.style.display = 'none';
+    spinner.style.display = 'block';
+    spinner.innerHTML = `
+        <div class="text-center p-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Yüklənir...</span>
+            </div>
+            <p class="mt-2 text-muted">PDF yüklənir...</p>
+            <small class="text-muted">Böyük fayllar daha uzun vaxt ala bilər</small>
+        </div>
+    `;
+    
+    // Set title and download link
+    pdfTitle.textContent = fileName;
+    downloadLink.href = pdfUrl.replace('/preview/', '/download/');
+    
+    // Show modal
+    modal.show();
+    
+    // Set timeout for PDF loading (8 seconds)
+    let loadTimeout = setTimeout(() => {
+        spinner.innerHTML = `
+            <div class="text-center p-4">
+                <i class="fas fa-clock fa-3x text-warning mb-3"></i>
+                <h5>PDF yükləmə çox uzun çəkir</h5>
+                <p class="text-muted">PDF faylı böyük ola bilər və ya internet bağlantınız yavaş ola bilər.</p>
+                <div class="d-flex gap-2 justify-content-center mt-3">
+                    <button class="btn btn-primary" onclick="forceOpenPDF('${pdfUrl}')">
+                        <i class="fas fa-external-link-alt me-2"></i>Yeni pəncərədə aç
+                    </button>
+                    <button class="btn btn-info" onclick="retryPDFLoad('${pdfUrl}', '${fileName}')">
+                        <i class="fas fa-redo me-2"></i>Yenidən cəhd et
+                    </button>
+                </div>
+            </div>
+        `;
+    }, 8000); // 8 saniyə timeout
+    
+    // Load PDF
+    pdfEmbed.src = pdfUrl;
+    
+    // Handle load event
+    pdfEmbed.onload = function() {
+        clearTimeout(loadTimeout);
+        spinner.style.display = 'none';
+        pdfEmbed.style.display = 'block';
+    };
+    
+    // Handle error
+    pdfEmbed.onerror = function() {
+        clearTimeout(loadTimeout);
+        spinner.innerHTML = `
+            <div class="text-center p-4">
+                <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
+                <h5>PDF yüklənə bilmədi</h5>
+                <p class="text-muted">PDF faylı zədələnmiş ola bilər və ya brauzer dəstəkləmir.</p>
+                <div class="d-flex gap-2 justify-content-center mt-3">
+                    <button class="btn btn-primary" onclick="forceOpenPDF('${pdfUrl}')">
+                        <i class="fas fa-external-link-alt me-2"></i>Yeni pəncərədə aç
+                    </button>
+                    <a href="${pdfUrl.replace('/preview/', '/download/')}" class="btn btn-success">
+                        <i class="fas fa-download me-2"></i>Yüklə
+                    </a>
+                </div>
+            </div>
+        `;
+    };
+}
+
+// Force open PDF in new window
+function forceOpenPDF(pdfUrl) {
+    // PDF preview URL-ini download URL-i ilə əvəz et yeni pəncərədə açmaq üçün
+    const downloadUrl = pdfUrl.replace('/preview/', '/download/');
+    window.open(downloadUrl, '_blank');
+}
+
+// Retry PDF loading
+function retryPDFLoad(pdfUrl, fileName) {
+    const modal = bootstrap.Modal.getInstance(document.getElementById('pdfPreviewModal'));
+    modal.hide();
+    
+    // Wait a moment then retry
+    setTimeout(() => {
+        previewPDF(pdfUrl, fileName);
+    }, 500);
+}
+
+// Confirm PDF deletion
+function confirmDeletePDF(pdfId, fileName) {
+    if (confirm(`"${fileName}" adlı PDF faylını silmək istədiyinizə əminsiniz?`)) {
+        window.location.href = `/delete_pdf/${pdfId}`;
+    }
+}
+
+// Confirm student deletion
+function confirmDeleteStudent(studentId, utisCode) {
+    if (confirm(`"${utisCode}" adlı şagirdi silmək istədiyinizə əminsiniz?`)) {
+        window.location.href = `/delete_student/${studentId}`;
+    }
+}
+
+// ========= STUDENTS BULK OPERATIONS =========
+
+// Toggle all students checkboxes
+function toggleAllStudents(masterCheckbox) {
+    const checkboxes = document.querySelectorAll('.student-checkbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = masterCheckbox.checked;
+    });
+    updateStudentCount();
+}
+
+// Select all students
+function selectAllStudents() {
+    const checkboxes = document.querySelectorAll('.student-checkbox');
+    const masterCheckbox = document.getElementById('selectAllStudentsCheckbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = true;
+    });
+    masterCheckbox.checked = true;
+    updateStudentCount();
+}
+
+// Deselect all students
+function deselectAllStudents() {
+    const checkboxes = document.querySelectorAll('.student-checkbox');
+    const masterCheckbox = document.getElementById('selectAllStudentsCheckbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = false;
+    });
+    masterCheckbox.checked = false;
+    updateStudentCount();
+}
+
+// Update student selection count
+function updateStudentCount() {
+    const checkedBoxes = document.querySelectorAll('.student-checkbox:checked');
+    const deleteButton = document.querySelector('button[onclick="bulkDeleteStudents()"]');
+    
+    if (deleteButton) {
+        if (checkedBoxes.length > 0) {
+            deleteButton.innerHTML = `<i class="fas fa-trash me-1"></i>Seçilənləri Sil (${checkedBoxes.length})`;
+            deleteButton.classList.remove('btn-outline-danger');
+            deleteButton.classList.add('btn-danger');
+        } else {
+            deleteButton.innerHTML = `<i class="fas fa-trash me-1"></i>Seçilənləri Sil`;
+            deleteButton.classList.remove('btn-danger');
+            deleteButton.classList.add('btn-outline-danger');
+        }
+    }
+}
+
+// Bulk delete students
+function bulkDeleteStudents() {
+    const checkedBoxes = document.querySelectorAll('.student-checkbox:checked');
+    
+    if (checkedBoxes.length === 0) {
+        alert('Silinəcək şagird seçin!');
+        return;
+    }
+    
+    if (confirm(`${checkedBoxes.length} şagirdi silmək istədiyinizə əminsiniz?\n\n⚠️ Bu əməliyyat geri qaytarıla bilməz!`)) {
+        document.getElementById('bulkStudentForm').submit();
+    }
+}
+
+// ========= PDFs BULK OPERATIONS =========
+
+// Toggle all PDFs checkboxes
+function toggleAllPDFs(masterCheckbox) {
+    const checkboxes = document.querySelectorAll('.pdf-checkbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = masterCheckbox.checked;
+    });
+    updatePDFCount();
+}
+
+// Select all PDFs
+function selectAllPDFs() {
+    const checkboxes = document.querySelectorAll('.pdf-checkbox');
+    const masterCheckbox = document.getElementById('selectAllPDFsCheckbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = true;
+    });
+    masterCheckbox.checked = true;
+    updatePDFCount();
+}
+
+// Deselect all PDFs
+function deselectAllPDFs() {
+    const checkboxes = document.querySelectorAll('.pdf-checkbox');
+    const masterCheckbox = document.getElementById('selectAllPDFsCheckbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = false;
+    });
+    masterCheckbox.checked = false;
+    updatePDFCount();
+}
+
+// Update PDF selection count
+function updatePDFCount() {
+    const checkedBoxes = document.querySelectorAll('.pdf-checkbox:checked');
+    const deleteButton = document.querySelector('button[onclick="bulkDeletePDFs()"]');
+    
+    if (deleteButton) {
+        if (checkedBoxes.length > 0) {
+            deleteButton.innerHTML = `<i class="fas fa-trash me-1"></i>Seçilənləri Sil (${checkedBoxes.length})`;
+            deleteButton.classList.remove('btn-outline-danger');
+            deleteButton.classList.add('btn-danger');
+        } else {
+            deleteButton.innerHTML = `<i class="fas fa-trash me-1"></i>Seçilənləri Sil`;
+            deleteButton.classList.remove('btn-danger');
+            deleteButton.classList.add('btn-outline-danger');
+        }
+    }
+}
+
+// Bulk delete PDFs
+function bulkDeletePDFs() {
+    const checkedBoxes = document.querySelectorAll('.pdf-checkbox:checked');
+    
+    if (checkedBoxes.length === 0) {
+        alert('Silinəcək PDF seçin!');
+        return;
+    }
+    
+    if (confirm(`${checkedBoxes.length} PDF faylını silmək istədiyinizə əminsiniz?\n\n⚠️ Bu əməliyyat geri qaytarıla bilməz!`)) {
+        document.getElementById('bulkPDFForm').submit();
+    }
+}
+
+// Add event listeners for individual checkboxes
+document.addEventListener('DOMContentLoaded', function() {
+    // Student checkboxes event listeners
+    const studentCheckboxes = document.querySelectorAll('.student-checkbox');
+    studentCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', updateStudentCount);
+    });
+    
+    // PDF checkboxes event listeners
+    const pdfCheckboxes = document.querySelectorAll('.pdf-checkbox');
+    pdfCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', updatePDFCount);
+    });
+    
+    // Initial count update
+    updateStudentCount();
+    updatePDFCount();
+});
+
+// File upload validation and progress
+document.getElementById('files').addEventListener('change', function(e) {
+    const files = e.target.files;
+    if (files.length > 0) {
+        let totalSize = 0;
+        let pdfCount = 0;
+        
+        for (let file of files) {
+            totalSize += file.size;
+            if (file.type === 'application/pdf') {
+                pdfCount++;
+            }
+        }
+        
+        const totalSizeMB = totalSize / 1024 / 1024;
+        
+        if (totalSizeMB > 200) {
+            alert('Ümumi fayl ölçüsü 200MB-dan böyük ola bilməz!');
+            this.value = '';
+            return;
+        }
+        
+        if (pdfCount !== files.length) {
+            alert('Yalnız PDF faylları seçin!');
+            this.value = '';
+            return;
+        }
+        
+        // Show file count
+        const formText = this.parentElement.querySelector('.form-text');
+        formText.innerHTML = `
+            <i class="fas fa-check-circle text-success me-1"></i>
+            ${files.length} PDF fayl seçildi (${totalSizeMB.toFixed(1)}MB)
+        `;
+    }
+});
+
+// Excel file validation
+document.getElementById('excel_file').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (file) {
+        const fileSize = file.size / 1024 / 1024; // in MB
+        if (fileSize > 10) {
+            alert('Excel fayl ölçüsü 10MB-dan böyük ola bilməz!');
+            this.value = '';
+            return;
+        }
+        
+        const allowedTypes = [
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-excel'
+        ];
+        
+        if (!allowedTypes.includes(file.type)) {
+            alert('Yalnız Excel faylları (.xlsx, .xls) qəbul edilir!');
+            this.value = '';
+            return;
+        }
+    }
+});
+</script>
+{% endblock %} 

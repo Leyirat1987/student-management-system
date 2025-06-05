@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block title %}Şagird Düzəlişi{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="container-custom">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2>
+                    <i class="fas fa-user-edit text-primary me-2"></i>
+                    Şagird Düzəlişi
+                </h2>
+                <a href="{{ url_for('admin') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left me-2"></i>Geri Qayıt
+                </a>
+            </div>
+
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-edit me-2"></i>
+                        Şagird Məlumatlarını Dəyişdir
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="utis_code" class="form-label">
+                                    <i class="fas fa-id-badge me-1"></i>UTİS Kodu <span class="text-danger">*</span>
+                                </label>
+                                <input type="text" 
+                                       class="form-control" 
+                                       id="utis_code" 
+                                       name="utis_code" 
+                                       value="{{ student[1] if student else '' }}"
+                                       placeholder="UTIS123456"
+                                       required
+                                       maxlength="20">
+                                <div class="form-text">
+                                    UTİS kodu unikal olmalıdır və böyük hərflərlə yazılır
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6 mb-3">
+                                <label for="fin_code" class="form-label">
+                                    <i class="fas fa-id-card me-1"></i>FİN Kodu <span class="text-danger">*</span>
+                                </label>
+                                <input type="text" 
+                                       class="form-control" 
+                                       id="fin_code" 
+                                       name="fin_code" 
+                                       value="{{ student[3] if student else '' }}"
+                                       placeholder="ABC1234"
+                                       required
+                                       maxlength="7">
+                                <div class="form-text">
+                                    FİN kodu maksimum 7 simvol ola bilər
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="student_name" class="form-label">
+                                <i class="fas fa-user me-1"></i>Şagird Adı <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" 
+                                   class="form-control" 
+                                   id="student_name" 
+                                   name="student_name" 
+                                   value="{{ student[2] if student else '' }}"
+                                   placeholder="Ad Soyad"
+                                   required
+                                   maxlength="100">
+                            <div class="form-text">
+                                Şagirdin tam adı və soyadı
+                            </div>
+                        </div>
+
+                        <div class="d-flex gap-2 justify-content-end">
+                            <a href="{{ url_for('admin') }}" class="btn btn-secondary">
+                                <i class="fas fa-times me-2"></i>Ləğv Et
+                            </a>
+                            <button type="submit" class="btn btn-success">
+                                <i class="fas fa-save me-2"></i>Məlumatları Yenilə
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Current Information Display -->
+            {% if student %}
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h6 class="mb-0">
+                        <i class="fas fa-info-circle me-2"></i>
+                        Cari Məlumatlar
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <strong>ID:</strong> {{ student[0] }}
+                        </div>
+                        <div class="col-md-4">
+                            <strong>UTİS:</strong> <span class="badge bg-primary">{{ student[1] }}</span>
+                        </div>
+                        <div class="col-md-4">
+                            <strong>FİN:</strong> <code>{{ student[3] }}</code>
+                        </div>
+                    </div>
+                    <div class="row mt-2">
+                        <div class="col-md-6">
+                            <strong>Ad:</strong> {{ student[2] }}
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Qeydiyyat:</strong> 
+                            <small class="text-muted">{{ student[4][:16] if student[4] else 'N/A' }}</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// FIN code input validation
+document.getElementById('fin_code').addEventListener('input', function() {
+    this.value = this.value.toUpperCase();
+    if (this.value.length > 7) {
+        this.value = this.value.substring(0, 7);
+    }
+});
+
+// UTIS code input validation
+document.getElementById('utis_code').addEventListener('input', function() {
+    this.value = this.value.toUpperCase();
+});
+
+// Form validation
+document.querySelector('form').addEventListener('submit', function(e) {
+    const utisCode = document.getElementById('utis_code').value.trim();
+    const studentName = document.getElementById('student_name').value.trim();
+    const finCode = document.getElementById('fin_code').value.trim();
+    
+    if (!utisCode || !studentName || !finCode) {
+        e.preventDefault();
+        alert('Bütün sahələri doldurun!');
+        return false;
+    }
+    
+    if (finCode.length > 7) {
+        e.preventDefault();
+        alert('FİN kodu maksimum 7 simvol ola bilər!');
+        return false;
+    }
+    
+    return true;
+});
+</script>
+{% endblock %} 

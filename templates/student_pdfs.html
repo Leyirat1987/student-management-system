@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+
+{% block title %}{{ student[2] if student else utis_code }} - PDF Faylları{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="container-custom">
+            <!-- Student Info Header -->
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h2 class="mb-1">
+                        <i class="fas fa-user-graduate text-primary me-2"></i>
+                        {{ student_info.name if student_info else (student[2] if student else utis_code) }}
+                    </h2>
+                    <p class="text-muted mb-0">
+                        <i class="fas fa-id-badge me-1"></i>
+                        UTİS Kodu: <strong>{{ utis_code }}</strong>
+                        {% if student_info %}
+                        <br><i class="fas fa-id-card me-1"></i>
+                        FİN Kodu: <code>{{ student_info.fin_code }}</code>
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="text-end">
+                    <span class="badge bg-success fs-6 me-2">
+                        <i class="fas fa-file-pdf me-1"></i>
+                        {{ pdfs|length }} PDF Fayl
+                    </span>
+                    <span class="badge bg-info fs-6">
+                        <i class="fas fa-shield-alt me-1"></i>
+                        Doğrulandı ✓
+                    </span>
+                </div>
+            </div>
+
+            <!-- Navigation and Logout -->
+            <div class="mb-4 d-flex justify-content-between">
+                <a href="{{ url_for('enter_utis') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left me-2"></i>Geri
+                </a>
+                <a href="{{ url_for('logout_student') }}" class="btn btn-outline-danger">
+                    <i class="fas fa-sign-out-alt me-2"></i>Çıxış Et
+                </a>
+            </div>
+
+            <!-- PDF Files List -->
+            {% if pdfs %}
+                <div class="row">
+                    {% for pdf in pdfs %}
+                    <div class="col-md-6 col-lg-4 mb-4">
+                        <div class="card h-100">
+                            <div class="card-body d-flex flex-column">
+                                <div class="text-center mb-3">
+                                    <i class="fas fa-file-pdf fa-3x text-danger mb-2"></i>
+                                    <h6 class="card-title">{{ pdf[3] }}</h6>
+                                </div>
+                                
+                                <div class="flex-grow-1">
+                                    <p class="card-text small text-muted">
+                                        <i class="fas fa-calendar me-1"></i>
+                                        Yüklənmə tarixi: {{ pdf[5][:16] }}
+                                    </p>
+                                </div>
+                                
+                                <div class="mt-auto">
+                                    <div class="d-grid gap-2">
+                                        <a href="{{ url_for('download_pdf', pdf_id=pdf[0]) }}" 
+                                           class="btn btn-primary">
+                                            <i class="fas fa-download me-2"></i>Yüklə
+                                        </a>
+                                        <button type="button" 
+                                                class="btn btn-outline-secondary btn-sm" 
+                                                data-pdf-url="{{ url_for('preview_pdf', pdf_id=pdf[0]) }}"
+                                                data-pdf-name="{{ pdf[3] }}"
+                                                onclick="previewPDF(this.getAttribute('data-pdf-url'), this.getAttribute('data-pdf-name'))">
+                                            <i class="fas fa-eye me-1"></i>Önizləmə
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="text-center py-5">
+                    <i class="fas fa-folder-open fa-4x text-muted mb-3"></i>
+                    <h4 class="text-muted">Hələ PDF fayl yüklənməyib</h4>
+                    <p class="text-muted">Bu UTİS kodu üçün hələ heç bir PDF fayl sistemdə qeydiyyatda deyil.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- PDF Preview Modal -->
+<div class="modal fade" id="pdfPreviewModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-file-pdf text-danger me-2"></i>
+                    <span id="pdfTitle">PDF Önizləmə</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="text-center p-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Yüklənir...</span>
+                    </div>
+                    <p class="mt-2 text-muted">PDF yüklənir...</p>
+                    <small class="text-muted">Böyük fayllar daha uzun vaxt ala bilər</small>
+                </div>
+                <embed id="pdfEmbed" 
+                       src="" 
+                       type="application/pdf" 
+                       width="100%" 
+                       height="600"
+                       style="display: none;">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-2"></i>Bağla
+                </button>
+                <a id="downloadLink" href="#" class="btn btn-primary">
+                    <i class="fas fa-download me-2"></i>Yüklə
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function previewPDF(pdfUrl, fileName) {
+    const modal = new bootstrap.Modal(document.getElementById('pdfPreviewModal'));
+    const pdfEmbed = document.getElementById('pdfEmbed');
+    const pdfTitle = document.getElementById('pdfTitle');
+    const downloadLink = document.getElementById('downloadLink');
+    const spinner = document.querySelector('#pdfPreviewModal .spinner-border').parentElement;
+    
+    // Reset modal
+    pdfEmbed.style.display = 'none';
+    spinner.style.display = 'block';
+    spinner.innerHTML = `
+        <div class="text-center p-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Yüklənir...</span>
+            </div>
+            <p class="mt-2 text-muted">PDF yüklənir...</p>
+            <small class="text-muted">Böyük fayllar daha uzun vaxt ala bilər</small>
+        </div>
+    `;
+    
+    // Set title and download link
+    pdfTitle.textContent = fileName;
+    downloadLink.href = pdfUrl.replace('/preview/', '/download/');
+    
+    // Show modal
+    modal.show();
+    
+    // Set timeout for PDF loading (8 seconds)
+    let loadTimeout = setTimeout(() => {
+        spinner.innerHTML = `
+            <div class="text-center p-4">
+                <i class="fas fa-clock fa-3x text-warning mb-3"></i>
+                <h5>PDF yükləmə çox uzun çəkir</h5>
+                <p class="text-muted">PDF faylı böyük ola bilər və ya internet bağlantınız yavaş ola bilər.</p>
+                <div class="d-flex gap-2 justify-content-center mt-3">
+                    <button class="btn btn-primary" onclick="window.open('${pdfUrl.replace('/preview/', '/download/')}', '_blank')">
+                        <i class="fas fa-external-link-alt me-2"></i>Yeni pəncərədə aç
+                    </button>
+                    <button class="btn btn-info" onclick="retryPDFLoad('${pdfUrl}', '${fileName}')">
+                        <i class="fas fa-redo me-2"></i>Yenidən cəhd et
+                    </button>
+                </div>
+            </div>
+        `;
+    }, 8000); // 8 saniyə timeout
+    
+    // Load PDF
+    pdfEmbed.src = pdfUrl;
+    
+    // Handle load event
+    pdfEmbed.onload = function() {
+        clearTimeout(loadTimeout);
+        spinner.style.display = 'none';
+        pdfEmbed.style.display = 'block';
+    };
+    
+    // Handle error
+    pdfEmbed.onerror = function() {
+        clearTimeout(loadTimeout);
+        spinner.innerHTML = `
+            <div class="text-center p-4">
+                <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
+                <h5>PDF yüklənə bilmədi</h5>
+                <p class="text-muted">PDF faylı zədələnmiş ola bilər və ya brauzer dəstəkləmir.</p>
+                <div class="d-flex gap-2 justify-content-center mt-3">
+                    <button class="btn btn-primary" onclick="window.open('${pdfUrl.replace('/preview/', '/download/')}', '_blank')">
+                        <i class="fas fa-external-link-alt me-2"></i>Yeni pəncərədə aç
+                    </button>
+                    <a href="${pdfUrl.replace('/preview/', '/download/')}" class="btn btn-success">
+                        <i class="fas fa-download me-2"></i>Yüklə
+                    </a>
+                </div>
+            </div>
+        `;
+    };
+}
+
+// Retry PDF loading function
+function retryPDFLoad(pdfUrl, fileName) {
+    const modal = bootstrap.Modal.getInstance(document.getElementById('pdfPreviewModal'));
+    modal.hide();
+    
+    // Wait a moment then retry
+    setTimeout(() => {
+        previewPDF(pdfUrl, fileName);
+    }, 500);
+}
+
+// Auto-scroll to top when page loads
+window.onload = function() {
+    window.scrollTo(0, 0);
+};
+</script>
+{% endblock %} 

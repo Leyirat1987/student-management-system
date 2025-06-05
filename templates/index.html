@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}FİN Kodu ilə Giriş{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="container-custom text-center">
+            <div class="mb-4">
+                <i class="fas fa-id-card fa-4x text-primary mb-3"></i>
+                <h1 class="h2 mb-3">UTIS PDF Axtarış Sistemi</h1>
+                <p class="lead text-muted">Əvvəlcə FİN kodunuzu daxil edərək sistemə daxil olun</p>
+            </div>
+
+            <form method="POST" action="{{ url_for('verify_fin') }}" class="mb-4">
+                <div class="mb-3">
+                    <label for="fin_code" class="form-label h5">FİN Kodunuz:</label>
+                    <input type="text" 
+                           class="form-control form-control-lg text-center" 
+                           id="fin_code" 
+                           name="fin_code" 
+                           placeholder="Məs: ABC1234"
+                           required 
+                           maxlength="7"
+                           style="font-size: 1.2rem; letter-spacing: 1px;">
+                    <div class="form-text">FİN kodu 7 rəqəm-hərfdən ibarətdir</div>
+                </div>
+                <button type="submit" class="btn btn-primary btn-lg px-5">
+                    <i class="fas fa-sign-in-alt me-2"></i>Giriş Et
+                </button>
+            </form>
+
+            <div class="mt-5 p-4 bg-light rounded">
+                <h5 class="text-secondary mb-3">
+                    <i class="fas fa-info-circle me-2"></i>Giriş addımları:
+                </h5>
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <div class="d-flex align-items-center">
+                            <span class="badge bg-primary rounded-pill me-3">1</span>
+                            <small class="text-muted">FİN kodunuzu daxil edin</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="d-flex align-items-center">
+                            <span class="badge bg-primary rounded-pill me-3">2</span>
+                            <small class="text-muted">UTİS kodunuzu daxil edin</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="d-flex align-items-center">
+                            <span class="badge bg-primary rounded-pill me-3">3</span>
+                            <small class="text-muted">PDF fayllarınızı görün və endirin</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12 text-center">
+        <div class="container-custom">
+            <h5 class="text-secondary mb-3">
+                <i class="fas fa-shield-alt me-2"></i>İki Mərhələli Təhlükəsizlik
+            </h5>
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <i class="fas fa-user-check fa-2x text-primary mb-2"></i>
+                    <p class="small text-muted">FİN kodu ilə şəxsiyyət doğrulanması</p>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <i class="fas fa-lock fa-2x text-primary mb-2"></i>
+                    <p class="small text-muted">UTİS kodu ilə sənəd giriş icazəsi</p>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <i class="fas fa-file-pdf fa-2x text-primary mb-2"></i>
+                    <p class="small text-muted">Yalnız sizə aid PDF-lərə çıxış</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Subtle admin link -->
+<div class="row mt-5">
+    <div class="col-12 text-center">
+        <small class="text-muted">
+            <a href="{{ url_for('admin_login') }}" class="text-decoration-none text-muted">
+                <i class="fas fa-cog"></i>
+            </a>
+        </small>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Auto-format FIN code input
+    document.getElementById('fin_code').addEventListener('input', function(e) {
+        this.value = this.value.toUpperCase();
+        
+        // Remove any non-alphanumeric characters
+        this.value = this.value.replace(/[^A-Z0-9]/g, '');
+        
+        // Limit to 7 characters
+        if (this.value.length > 7) {
+            this.value = this.value.substring(0, 7);
+        }
+    });
+    
+    // Focus on input when page loads
+    window.onload = function() {
+        document.getElementById('fin_code').focus();
+    };
+</script>
+{% endblock %} 

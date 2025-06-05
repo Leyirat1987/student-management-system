@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}UTİS Kodu Daxil Et{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <div class="container-custom text-center">
+            <!-- Welcome message -->
+            <div class="mb-4">
+                <i class="fas fa-user-check fa-3x text-success mb-3"></i>
+                <h1 class="h2 mb-3">Salam {{ student_info.name or 'Şagird' }}!</h1>
+                <p class="lead text-muted">FİN kodunuz doğrulandı. İndi UTİS kodunuzu daxil edin.</p>
+            </div>
+
+            <!-- Student info display -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="row text-start">
+                        <div class="col-sm-4">
+                            <strong class="text-secondary">Ad Soyad:</strong>
+                        </div>
+                        <div class="col-sm-8">
+                            {{ student_info.name or 'Məlumat yoxdur' }}
+                        </div>
+                        <div class="col-sm-4 mt-2">
+                            <strong class="text-secondary">FİN Kodu:</strong>
+                        </div>
+                        <div class="col-sm-8 mt-2">
+                            <code>{{ student_info.fin_code }}</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- UTIS Code Form -->
+            <form method="POST" action="{{ url_for('search_student') }}" class="mb-4">
+                <div class="mb-3">
+                    <label for="utis_code" class="form-label h5">UTİS Kodunuz:</label>
+                    <input type="text" 
+                           class="form-control form-control-lg text-center" 
+                           id="utis_code" 
+                           name="utis_code" 
+                           placeholder="Məs: UTIS123456"
+                           required 
+                           style="font-size: 1.2rem; letter-spacing: 1px;">
+                    <div class="form-text">UTİS kodu adətən UTIS ilə başlayır və rəqəmlər izləyir</div>
+                </div>
+                <button type="submit" class="btn btn-success btn-lg px-5">
+                    <i class="fas fa-file-pdf me-2"></i>PDF-ləri Görüntülə
+                </button>
+            </form>
+
+            <!-- Action buttons -->
+            <div class="mt-4">
+                <a href="{{ url_for('logout_student') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-sign-out-alt me-2"></i>Çıxış Et
+                </a>
+            </div>
+
+            <!-- Instructions -->
+            <div class="mt-5 p-4 bg-light rounded">
+                <h6 class="text-secondary mb-3">
+                    <i class="fas fa-lightbulb me-2"></i>Məlumat:
+                </h6>
+                <p class="small text-muted mb-0">
+                    UTİS kodunuz sizin təhsil nömrənizdir. Əgər UTİS kodunuzu unudubsunuz, 
+                    təhsil müəssisəsi ilə əlaqə saxlayın.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Security info -->
+<div class="row mt-4">
+    <div class="col-12 text-center">
+        <div class="container-custom">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <i class="fas fa-shield-alt fa-2x text-success mb-2"></i>
+                    <p class="small text-muted">FİN doğrulandı ✓</p>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <i class="fas fa-lock fa-2x text-primary mb-2"></i>
+                    <p class="small text-muted">Təhlükəsiz bağlantı</p>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <i class="fas fa-eye-slash fa-2x text-primary mb-2"></i>
+                    <p class="small text-muted">Məxfi məlumatlar</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Auto-format UTIS code input
+    document.getElementById('utis_code').addEventListener('input', function(e) {
+        this.value = this.value.toUpperCase();
+    });
+    
+    // Focus on UTIS input when page loads
+    window.onload = function() {
+        document.getElementById('utis_code').focus();
+    };
+
+    // Auto logout after 10 minutes of inactivity
+    let logoutTimer;
+    
+    function resetLogoutTimer() {
+        clearTimeout(logoutTimer);
+        logoutTimer = setTimeout(function() {
+            alert('Təhlükəsizlik üçün 10 dəqiqədən sonra avtomatik çıxış edildi.');
+            window.location.href = "{{ url_for('logout_student') }}";
+        }, 10 * 60 * 1000); // 10 minutes
+    }
+    
+    // Reset timer on any user activity
+    document.addEventListener('mousemove', resetLogoutTimer);
+    document.addEventListener('keypress', resetLogoutTimer);
+    
+    // Start the timer
+    resetLogoutTimer();
+</script>
+{% endblock %} 
