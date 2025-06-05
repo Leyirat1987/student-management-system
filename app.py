@@ -14,9 +14,19 @@ app.secret_key = 'utis_pdf_system_secret_key_2024_azerbaijan'
 ADMIN_USERNAME = 'admin'
 ADMIN_PASSWORD = 'admin123'  # Production-da güçlü parol istifadə edin!
 
+# Database configuration - Production vs Development
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if DATABASE_URL:
+    # Production - PostgreSQL
+    import psycopg2
+    import psycopg2.extras
+    DATABASE = DATABASE_URL
+else:
+    # Development - SQLite
+    DATABASE = 'students.db'
+
 # Configuration
 UPLOAD_FOLDER = 'uploads'
-DATABASE = 'students.db'
 ALLOWED_EXTENSIONS = {'pdf'}
 ALLOWED_EXCEL_EXTENSIONS = {'xlsx', 'xls'}
 
@@ -25,6 +35,17 @@ app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200MB max file size for 
 
 # Create necessary directories
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+def get_db_connection():
+    """Get database connection - PostgreSQL or SQLite"""
+    if DATABASE_URL:
+        # PostgreSQL connection
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+        return conn, True  # Return connection and is_postgres flag
+    else:
+        # SQLite connection
+        conn = sqlite3.connect(DATABASE)
+        return conn, False
 
 def is_admin_logged_in():
     """Check if admin is logged in"""
@@ -48,30 +69,61 @@ def allowed_excel_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXCEL_EXTENSIONS
 
 def init_db():
-    """Initialize the database"""
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS students (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            utis_code TEXT UNIQUE NOT NULL,
-            student_name TEXT,
-            fin_code TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS pdfs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            utis_code TEXT NOT NULL,
-            filename TEXT NOT NULL,
-            original_filename TEXT NOT NULL,
-            file_path TEXT NOT NULL,
-            upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
+    """Initialize database tables"""
+    conn, is_postgres = get_db_connection()
+    
+    if is_postgres:
+        c = conn.cursor()
+        # PostgreSQL table creation
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS students (
+                id SERIAL PRIMARY KEY,
+                utis_code VARCHAR(20) UNIQUE NOT NULL,
+                student_name VARCHAR(255) NOT NULL,
+                fin_code VARCHAR(7) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS pdfs (
+                id SERIAL PRIMARY KEY,
+                utis_code VARCHAR(20) NOT NULL,
+                filename VARCHAR(255) NOT NULL,
+                original_filename VARCHAR(255),
+                file_path TEXT,
+                upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+    else:
+        c = conn.cursor()
+        # SQLite table creation (existing code)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS students (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                utis_code TEXT UNIQUE NOT NULL,
+                student_name TEXT NOT NULL,
+                fin_code TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS pdfs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                utis_code TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                original_filename TEXT,
+                file_path TEXT,
+                upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+    
     conn.commit()
     conn.close()
+
+# Initialize database on startup
+init_db()
 
 def get_student_by_utis(utis_code):
     """Get student information by UTIS code"""
@@ -227,7 +279,7 @@ def admin_secret():
 @login_required
 def admin():
     """Admin panel for managing students and PDFs"""
-    conn = sqlite3.connect(DATABASE)
+    conn, is_postgres = get_db_connection()
     c = conn.cursor()
     
     # Bütün şagirdləri al
@@ -306,8 +358,9 @@ def admin():
         pdf_data = list(pdf)
         try:
             # Fayl həcmini hesabla
-            if os.path.exists(pdf[4]):  # pdf[4] is file_path
-                file_size = os.path.getsize(pdf[4])
+            file_path_index = 4 if not is_postgres else 4  # file_path column index
+            if len(pdf) > file_path_index and pdf[file_path_index] and os.path.exists(pdf[file_path_index]):
+                file_size = os.path.getsize(pdf[file_path_index])
                 if file_size < 1024:
                     size_str = f"{file_size} B"
                 elif file_size < 1024*1024:
@@ -736,5 +789,4 @@ def get_validation_status():
     })
 
 if __name__ == '__main__':
-    init_db()
     app.run(debug=True, host='0.0.0.0', port=5000) 
