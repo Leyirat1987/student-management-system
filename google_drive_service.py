@@ -5,6 +5,7 @@ Handles PDF upload, download, and management
 
 import os
 import io
+import json
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
@@ -22,15 +23,28 @@ class GoogleDriveService:
     def _authenticate(self):
         """Authenticate with Google Drive API"""
         try:
-            # Load credentials from JSON file
-            credentials = service_account.Credentials.from_service_account_file(
-                self.credentials_file,
-                scopes=['https://www.googleapis.com/auth/drive']
-            )
+            # Try to get credentials from environment variable first (for production)
+            google_creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+            
+            if google_creds_json:
+                # Production: Load from environment variable
+                credentials_info = json.loads(google_creds_json)
+                credentials = service_account.Credentials.from_service_account_info(
+                    credentials_info,
+                    scopes=['https://www.googleapis.com/auth/drive']
+                )
+                print("✅ Google Drive authentication from environment variable")
+            else:
+                # Development: Load from file
+                credentials = service_account.Credentials.from_service_account_file(
+                    self.credentials_file,
+                    scopes=['https://www.googleapis.com/auth/drive']
+                )
+                print("✅ Google Drive authentication from file")
             
             # Build the service
             self.service = build('drive', 'v3', credentials=credentials)
-            print("✅ Google Drive authentication successful")
+            print("✅ Google Drive service built successfully")
             
         except Exception as e:
             print(f"❌ Google Drive authentication failed: {str(e)}")
