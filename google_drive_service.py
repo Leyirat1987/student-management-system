@@ -26,23 +26,10 @@ class GoogleDriveService:
             # Try to get credentials from environment variable first (for production)
             google_creds_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
             
-            print("🔧 Starting Google Drive authentication...")
-            print(f"🔧 Environment variable GOOGLE_CREDENTIALS_JSON: {'FOUND' if google_creds_json else 'NOT FOUND'}")
-            
             if google_creds_json:
                 # Production: Load from environment variable
                 print("🔧 Loading Google credentials from environment variable...")
-                print(f"🔧 Environment variable length: {len(google_creds_json)} characters")
-                print(f"🔧 First 100 chars: {google_creds_json[:100]}...")
-                
-                try:
-                    credentials_info = json.loads(google_creds_json)
-                    print(f"🔧 JSON parsed successfully. Project: {credentials_info.get('project_id', 'Unknown')}")
-                    print(f"🔧 Service email: {credentials_info.get('client_email', 'Unknown')}")
-                except json.JSONDecodeError as je:
-                    print(f"❌ JSON parsing failed: {str(je)}")
-                    raise je
-                
+                credentials_info = json.loads(google_creds_json)
                 credentials = service_account.Credentials.from_service_account_info(
                     credentials_info,
                     scopes=['https://www.googleapis.com/auth/drive']
@@ -62,15 +49,11 @@ class GoogleDriveService:
                 print("✅ Google Drive authentication from file")
             
             # Build the service
-            print("🔧 Building Google Drive service...")
             self.service = build('drive', 'v3', credentials=credentials)
             print("✅ Google Drive service built successfully")
             
         except Exception as e:
             print(f"❌ Google Drive authentication failed: {str(e)}")
-            print(f"❌ Exception type: {type(e).__name__}")
-            import traceback
-            traceback.print_exc()
             raise e
     
     def _setup_folders(self):
