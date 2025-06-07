@@ -25,16 +25,13 @@ app.secret_key = 'utis_pdf_system_secret_key_2024_azerbaijan'
 ADMIN_USERNAME = 'admin'
 ADMIN_PASSWORD = 'admin123'  # Production-da güçlü parol istifadə edin!
 
-# Database configuration - Production vs Development
-DATABASE_URL = os.environ.get('DATABASE_URL')
-if DATABASE_URL:
-    # Production - PostgreSQL
-    import psycopg2
-    import psycopg2.extras
-    DATABASE = DATABASE_URL
+# Database configuration
+if os.environ.get('DATABASE_URL'):
+    # Production: Use environment variable (PythonAnywhere MySQL)
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
 else:
-    # Development - SQLite
-    DATABASE = 'students.db'
+    # Development: Use local SQLite
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///students.db'
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
