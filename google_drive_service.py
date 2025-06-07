@@ -28,6 +28,7 @@ class GoogleDriveService:
             
             if google_creds_json:
                 # Production: Load from environment variable
+                print("🔧 Loading Google credentials from environment variable...")
                 credentials_info = json.loads(google_creds_json)
                 credentials = service_account.Credentials.from_service_account_info(
                     credentials_info,
@@ -36,6 +37,11 @@ class GoogleDriveService:
                 print("✅ Google Drive authentication from environment variable")
             else:
                 # Development: Load from file
+                print("🔧 Loading Google credentials from file...")
+                if not os.path.exists(self.credentials_file):
+                    print(f"❌ Credentials file not found: {self.credentials_file}")
+                    raise FileNotFoundError(f"Credentials file not found: {self.credentials_file}")
+                
                 credentials = service_account.Credentials.from_service_account_file(
                     self.credentials_file,
                     scopes=['https://www.googleapis.com/auth/drive']
@@ -43,11 +49,14 @@ class GoogleDriveService:
                 print("✅ Google Drive authentication from file")
             
             # Build the service
+            print("🔧 Building Google Drive service...")
             self.service = build('drive', 'v3', credentials=credentials)
             print("✅ Google Drive service built successfully")
             
         except Exception as e:
             print(f"❌ Google Drive authentication failed: {str(e)}")
+            import traceback
+            traceback.print_exc()
             raise e
     
     def _setup_folders(self):
@@ -205,10 +214,19 @@ drive_service = None
 def get_drive_service():
     """Get or create Google Drive service instance"""
     global drive_service
+    print("🔧 get_drive_service called...")
+    
     if drive_service is None:
+        print("🔧 Creating new Google Drive service instance...")
         try:
             drive_service = GoogleDriveService()
+            print("✅ Google Drive service created successfully")
         except Exception as e:
             print(f"❌ Failed to initialize Google Drive service: {str(e)}")
+            import traceback
+            traceback.print_exc()
             drive_service = None
+    else:
+        print("✅ Using existing Google Drive service instance")
+    
     return drive_service 

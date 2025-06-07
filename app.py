@@ -457,9 +457,17 @@ def bulk_upload_pdfs():
     failed_count = 0
     
     # Google Drive service əldə et
-    drive_service = get_drive_service()
-    if not drive_service:
-        flash('Google Drive bağlantısında xəta!', 'error')
+    print("🔧 Attempting to get Google Drive service...")
+    try:
+        drive_service = get_drive_service()
+        if not drive_service:
+            print("❌ Google Drive service is None")
+            flash('Google Drive bağlantısında xəta! Service is None', 'error')
+            return redirect(url_for('admin'))
+        print("✅ Google Drive service obtained successfully")
+    except Exception as e:
+        print(f"❌ Exception getting Google Drive service: {str(e)}")
+        flash(f'Google Drive bağlantısında xəta: {str(e)}', 'error')
         return redirect(url_for('admin'))
     
     for file in files:
@@ -467,6 +475,7 @@ def bulk_upload_pdfs():
             try:
                 # Fayl adından UTİS kodunu çıxar
                 utis_code = extract_utis_from_filename(file.filename)
+                print(f"🔧 Processing file: {file.filename} -> UTIS: {utis_code}")
                 
                 # Fayl adını təhlükəsiz et
                 original_filename = file.filename
@@ -478,12 +487,25 @@ def bulk_upload_pdfs():
                 
                 # Müvəqqəti olaraq yerli qovluğa yüklə
                 temp_file_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
+                print(f"🔧 Saving temporary file to: {temp_file_path}")
                 file.save(temp_file_path)
                 
+                # Check if file was saved successfully
+                if not os.path.exists(temp_file_path):
+                    print(f"❌ Failed to save temporary file: {temp_file_path}")
+                    failed_count += 1
+                    continue
+                
+                file_size = os.path.getsize(temp_file_path)
+                print(f"🔧 Temporary file saved successfully, size: {file_size} bytes")
+                
                 # Google Drive-a yüklə
+                print(f"🔧 Uploading to Google Drive...")
                 drive_result = drive_service.upload_pdf(temp_file_path, utis_code, original_filename)
                 
                 if drive_result:
+                    print(f"✅ Google Drive upload successful: {drive_result}")
+                    
                     # File size əldə et
                     file_size = drive_result.get('file_size', '0')
                     if file_size and file_size != '0':
@@ -497,6 +519,7 @@ def bulk_upload_pdfs():
                         size_str = "N/A"
                     
                     # Database-ə Google Drive məlumatları ilə əlavə et
+                    print(f"🔧 Adding to database: {utis_code}")
                     conn, is_postgres = get_db_connection()
                     
                     if is_postgres:
@@ -514,14 +537,17 @@ def bulk_upload_pdfs():
                     
                     conn.commit()
                     conn.close()
+                    print(f"✅ Database entry added successfully")
                     
                     # Müvəqqəti faylı sil
                     if os.path.exists(temp_file_path):
                         os.remove(temp_file_path)
+                        print(f"🔧 Temporary file cleaned up")
                     
                     uploaded_count += 1
                     print(f"✅ PDF uploaded successfully: {utis_code} -> {drive_result['drive_file_id']}")
                 else:
+                    print(f"❌ Google Drive upload returned None for: {file.filename}")
                     # Google Drive upload failed, müvəqqəti faylı sil
                     if os.path.exists(temp_file_path):
                         os.remove(temp_file_path)
@@ -530,7 +556,9 @@ def bulk_upload_pdfs():
                     
             except Exception as e:
                 failed_count += 1
-                print(f"Fayl yükləmə səhvi: {file.filename} - {str(e)}")
+                print(f"❌ Exception processing file {file.filename}: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 # Müvəqqəti faylı təmizlə əgər xəta baş verdi
                 try:
                     if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
@@ -539,12 +567,14 @@ def bulk_upload_pdfs():
                     pass
         else:
             failed_count += 1
+            print(f"❌ File not allowed or empty: {file.filename if file else 'None'}")
     
     if uploaded_count > 0:
         flash(f'{uploaded_count} PDF uğurla Google Drive-a yükləndi!', 'success')
     if failed_count > 0:
         flash(f'{failed_count} PDF yüklənə bilmədi!', 'error')
     
+    print(f"📊 Upload summary: {uploaded_count} successful, {failed_count} failed")
     return redirect(url_for('admin'))
 
 @app.route('/upload_excel_students', methods=['POST'])
