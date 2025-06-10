@@ -2,8 +2,15 @@ from flask import Flask, render_template, request, send_file, jsonify, flash, re
 import os
 import json
 from werkzeug.utils import secure_filename
-import sqlite3
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Database configuration
+DATABASE_URL = os.environ.get('DATABASE_URL')
+GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_CREDENTIALS_JSON')
 
 # Optional pandas import - lazım olduqda yükləyəcək
 try:
@@ -23,15 +30,7 @@ app.secret_key = 'utis_pdf_system_secret_key_2024_azerbaijan'
 
 # Admin credentials - Production-da dəyişdirin!
 ADMIN_USERNAME = 'admin'
-ADMIN_PASSWORD = 'admin123'  # Production-da güçlü parol istifadə edin!
-
-# Database configuration
-if os.environ.get('DATABASE_URL'):
-    # Production: Use environment variable (PythonAnywhere MySQL)
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
-else:
-    # Development: Use local SQLite
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///students.db'
+ADMIN_PASSWORD = 'admin123'
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -45,14 +44,16 @@ app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200MB max file size for 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def get_db_connection():
-    """Get database connection - PostgreSQL or SQLite"""
+    """Get database connection - PostgreSQL on Render.com"""
     if DATABASE_URL:
-        # PostgreSQL connection
+        # PostgreSQL connection for production
+        import psycopg2
         conn = psycopg2.connect(DATABASE_URL, sslmode='require')
         return conn, True  # Return connection and is_postgres flag
     else:
-        # SQLite connection
-        conn = sqlite3.connect(DATABASE)
+        # SQLite fallback for development
+        import sqlite3
+        conn = sqlite3.connect('students.db')
         return conn, False
 
 def is_admin_logged_in():
